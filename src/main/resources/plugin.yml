@@ -1,0 +1,91 @@
+name: RushCT
+version: 1.4.4
+author: IsabellaX
+description: RushCT服务器综合插件，提供签到系统、好友系统、快递系统、玩家信息护照、主菜单、热词加一等多种功能
+main: com.rushCT.RushCT
+api-version: 1.20
+depend:
+  - Vault
+  - ProtocolLib
+  - PlaceholderAPI
+commands:
+  gift:
+    description: 打开快递菜单，可向其他玩家发送物品快递
+    usage: /gift [玩家名称] - 无参数时打开自己的快递菜单
+    permission: rushct.gift
+    permission-message: 你没有权限使用此命令！
+  friend:
+    description: 打开好友系统菜单，管理好友申请和好友列表
+    usage: /friend [玩家名称] - 无参数时打开好友菜单，添加玩家名称时发送好友申请
+    permission: rushct.friend
+    permission-message: 你没有权限使用此命令！
+  hello:
+    description: 打开与玩家的交互菜单，可发起交易请求
+    usage: /hello [玩家名称] - 打开与目标玩家的交互菜单
+    permission: rushct.hello
+    permission-message: 你没有权限使用此命令！
+  passport:
+    description: 查看或编辑玩家信息护照，包含在线时长、连签天数、生日、性别等信息
+    usage: /passport [玩家名称] - 无参数时查看自己的护照，有参数时查看目标玩家的护照（需权限）
+    permission: rushct.passport
+  genderpage:
+    description: 性别列表翻页命令，用于在设置性别时翻页查看性别列表
+    usage: /genderpage <页码> - 翻到指定页码的性别列表
+    permission: rushct.passport
+  plusone:
+    description: 对热门消息进行加一操作，点击热门消息的[点我+1]按钮触发
+    usage: /plusone <消息> - 对指定消息进行+1操作
+    permission: rushct.use
+  menu:
+    description: 打开服务器主菜单，可访问签到、好友、快递等系统
+    usage: /menu - 打开服务器主菜单
+    permission: rushct.menu
+    permission-message: 你没有权限使用此命令！
+  daily-check:
+    description: 打开签到菜单，每日签到可获得金币奖励，连续签到有额外加成
+    usage: /daily-check - 打开签到菜单查看签到状态和奖励
+    permission: rushct.daily-check
+    permission-message: 你没有权限使用此命令！
+  resgui:
+    description: 打开领地管理菜单，可查看和管理玩家领地
+    usage: /resgui [领地名] - 无参数时打开领地菜单，有参数时打开指定领地的管理菜单
+    permission: rushct.residence
+    permission-message: 你没有权限使用此命令！
+  checkplaytime:
+    description: 查看玩家指定日期的在线时长数据（管理员命令）
+    usage: /checkplaytime <玩家名称> <年> <月> <日> - 查看玩家在指定日期的在线数据
+    permission: rushct.admin
+    permission-message: 你没有权限使用此命令！
+  rushct:
+    description: RushCT插件主命令，用于查看插件信息和重载配置
+    usage: /rushct [reload|help] - 无参数时显示帮助信息，reload时重载插件配置
+    permission: rushct.use
+    permission-message: 你没有权限使用此命令！
+permissions:
+  rushct.use:
+    description: 允许使用RushCT插件基础功能
+    default: true
+  rushct.admin:
+    description: 允许使用管理员命令，包括rushct reload和checkplaytime等
+    default: op
+  rushct.gift:
+    description: 允许使用快递系统发送和接收物品
+    default: true
+  rushct.friend:
+    description: 允许使用好友系统添加和管理好友
+    default: true
+  rushct.hello:
+    description: 允许使用与玩家的交互菜单功能
+    default: true
+  rushct.passport:
+    description: 允许查看和编辑玩家信息护照
+    default: true
+  rushct.menu:
+    description: 允许使用服务器主菜单
+    default: true
+  rushct.daily-check:
+    description: 允许使用签到系统进行每日签到
+    default: true
+  rushct.residence:
+    description: 允许使用领地管理菜单
+    default: true

@@ -24,6 +24,7 @@ import org.bukkit.Material;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
+import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -99,8 +100,9 @@ public class FriendSystem implements Listener {
         Player player = event.getPlayer();
         UUID playerUUID = player.getUniqueId();
         long currentTime = System.currentTimeMillis();
-        this.lastJoinTimes.put(playerUUID, Long.valueOf(currentTime));
-        this.sessionStartTimes.put(playerUUID, Long.valueOf(currentTime));
+        
+        // 先获取旧的lastJoinTime用于检查是否需要重置
+        Long oldLastJoinTime = this.lastJoinTimes.get(playerUUID);
         
         // 使用PlaceholderAPI获取当前总在线时长
         String placeholderResult = me.clip.placeholderapi.PlaceholderAPI.setPlaceholders(player, "%playtimes_playtime%");
@@ -115,9 +117,28 @@ public class FriendSystem implements Listener {
         if (!this.visibilityModes.containsKey(playerUUID)) {
             this.visibilityModes.put(playerUUID, VisibilityMode.PUBLIC);
         }
-        if (needResetTodayPlayTime(playerUUID, currentTime)) {
+        
+        // 检查是否需要重置今日在线时长（使用旧的lastJoinTime）
+        if (oldLastJoinTime == null) {
             this.dailyPlayTimeSnapshots.put(playerUUID, currentTotal);
+        } else {
+            Calendar currentCal = Calendar.getInstance();
+            currentCal.setTimeInMillis(currentTime);
+            Calendar lastJoinCal = Calendar.getInstance();
+            lastJoinCal.setTimeInMillis(oldLastJoinTime.longValue());
+            
+            boolean needReset = currentCal.get(Calendar.YEAR) != lastJoinCal.get(Calendar.YEAR) ||
+                               currentCal.get(Calendar.MONTH) != lastJoinCal.get(Calendar.MONTH) ||
+                               currentCal.get(Calendar.DAY_OF_MONTH) != lastJoinCal.get(Calendar.DAY_OF_MONTH);
+            
+            if (needReset) {
+                this.dailyPlayTimeSnapshots.put(playerUUID, currentTotal);
+            }
         }
+        
+        // 更新lastJoinTime和sessionStartTime
+        this.lastJoinTimes.put(playerUUID, Long.valueOf(currentTime));
+        this.sessionStartTimes.put(playerUUID, Long.valueOf(currentTime));
     }
 
     private boolean needResetTodayPlayTime(UUID playerUUID, long currentTime) {
@@ -216,26 +237,12 @@ public class FriendSystem implements Listener {
                         openPassportMenuSync(player, player.getUniqueId(), true);
                     } else {
                         try {
-                            int genderIndex = Integer.parseInt(message) - 1;
-                            List<String> gendersList = ((RushCT) plugin).getConfig().getStringList("genders.list");
-                            if (genderIndex >= 0 && genderIndex < gendersList.size()) {
-                                String genderEntry = gendersList.get(genderIndex);
-                                String genderName;
-                                // 格式：[编号] <性别名称> &r&2- &6<英文名称> &r&2- &r<描述>
-                                // 提取性别名称（去掉编号，到第一个 &r&2- 为止）
-                                int separatorIndex = genderEntry.indexOf("&r&2-");
-                                if (separatorIndex > 0) {
-                                    genderName = genderEntry.substring(0, separatorIndex).trim();
-                                    // 去掉前面的编号
-                                    int firstSpace = genderName.indexOf(" ");
-                                    if (firstSpace > 0) {
-                                        genderName = genderName.substring(firstSpace + 1).trim();
-                                    }
-                                } else {
-                                    // 如果格式不对，使用原逻辑
-                                    String[] parts = genderEntry.split(";", 2);
-                                    genderName = parts[0];
-                                }
+                            int genderId = Integer.parseInt(message);
+                            FileConfiguration config = this.plugin.getConfig();
+                            String basePath = "genders.items." + genderId;
+                            
+                            if (config.isConfigurationSection(basePath)) {
+                                String genderName = config.getString(basePath + ".name", "");
                                 this.genders.put(player.getUniqueId(), genderName);
                                 player.sendMessage("§a性别已设置为：" + translateColorCodes(genderName));
                                 this.editModes.remove(player.getUniqueId());
@@ -803,10 +810,29 @@ public class FriendSystem implements Listener {
         ItemMeta genderMeta = gender.getItemMeta();
         genderMeta.setDisplayName("§a性别");
         String genderText = this.genders.getOrDefault(targetUUID, "");
-        List<String> gendersList = ((RushCT) plugin).getConfig().getStringList("genders.list");
+        FileConfiguration config = this.plugin.getConfig();
         String genderName;
         if (genderText.isEmpty()) {
-            genderName = gendersList.isEmpty() ? "默认" : translateColorCodes(gendersList.get(0));
+            // 如果没有设置，使用第一个默认性别
+            if (config.isConfigurationSection("genders.items")) {
+                List<Integer> genderIds = new ArrayList<>();
+                for (String key : config.getConfigurationSection("genders.items").getKeys(false)) {
+                    try {
+                        genderIds.add(Integer.parseInt(key));
+                    } catch (NumberFormatException e) {
+                        continue;
+                    }
+                }
+                Collections.sort(genderIds);
+                if (!genderIds.isEmpty()) {
+                    String defaultGenderName = config.getString("genders.items." + genderIds.get(0) + ".name", "默认");
+                    genderName = translateColorCodes(defaultGenderName);
+                } else {
+                    genderName = "默认";
+                }
+            } else {
+                genderName = "默认";
+            }
         } else {
             genderName = translateColorCodes(genderText);
         }
@@ -1299,9 +1325,23 @@ public class FriendSystem implements Listener {
     }
 
     private void showGenderList(Player player, int page) {
-        List<String> gendersList = ((RushCT) plugin).getConfig().getStringList("genders.list");
+        FileConfiguration config = this.plugin.getConfig();
+        
+        // 获取所有性别配置
+        List<Integer> genderIds = new ArrayList<>();
+        if (config.isConfigurationSection("genders.items")) {
+            for (String key : config.getConfigurationSection("genders.items").getKeys(false)) {
+                try {
+                    genderIds.add(Integer.parseInt(key));
+                } catch (NumberFormatException e) {
+                    continue;
+                }
+            }
+            Collections.sort(genderIds);
+        }
+        
         int pageSize = 8;
-        int totalPages = (int) Math.ceil((double) gendersList.size() / pageSize);
+        int totalPages = (int) Math.ceil((double) genderIds.size() / pageSize);
         if (page < 1) page = 1;
         if (page > totalPages) page = totalPages;
 
@@ -1313,16 +1353,16 @@ public class FriendSystem implements Listener {
         player.sendMessage("§m==============================================");
 
         int startIndex = (page - 1) * pageSize;
-        int endIndex = Math.min(startIndex + pageSize, gendersList.size());
+        int endIndex = Math.min(startIndex + pageSize, genderIds.size());
         for (int i = startIndex; i < endIndex; i++) {
-            String genderEntry = gendersList.get(i);
-            String[] parts = genderEntry.split(";", 3);
-            String genderName = translateColorCodes(parts[0]);
-            String englishName = parts.length > 1 ? translateColorCodes(parts[1]) : "";
-            String description = parts.length > 2 ? translateColorCodes(parts[2]) : "";
+            int genderId = genderIds.get(i);
+            String basePath = "genders.items." + genderId;
+            String genderName = translateColorCodes(config.getString(basePath + ".name", ""));
+            String englishName = translateColorCodes(config.getString(basePath + ".english", ""));
+            String description = translateColorCodes(config.getString(basePath + ".description", ""));
             
             // 显示格式：[编号] <性别名称> - <英文名称> - <描述>
-            String display = "§7[§e" + (i + 1) + "§7] " + genderName + " §r§2- §6" + englishName + " §r§2- §r" + description;
+            String display = "§7[§e" + genderId + "§7] " + genderName + " §r§2- §6" + englishName + " §r§2- §r" + description;
             player.sendMessage(display);
         }
 

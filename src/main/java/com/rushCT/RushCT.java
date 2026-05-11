@@ -59,6 +59,7 @@ public class RushCT extends JavaPlugin implements Listener {
     private Map<UUID, List<Long>> messageTimestamps = new ConcurrentHashMap();
     private Set<UUID> mutedPlayers = ConcurrentHashMap.newKeySet();
     private Set<UUID> newPlayers = ConcurrentHashMap.newKeySet();
+    private Map<UUID, Integer> helpPageCache = new ConcurrentHashMap<>();
     
     private static class MessageRecord {
         UUID playerUUID;
@@ -132,12 +133,23 @@ public class RushCT extends JavaPlugin implements Listener {
         // 添加性别列表
         if (!this.config.isConfigurationSection("genders")) {
             this.config.createSection("genders");
-            // 性别存储格式：[编号] <性别名称> &r&2- &6<英文名称> &r&2- &r<描述>
-            List<String> genders = new ArrayList<>();
-            genders.add("1 &f默认 &r&2- &6Default &r&2- &r默认性别");
-            genders.add("2 &b男 &r&2- &6Male &r&2- &r男性玩家");
-            genders.add("3 &c女 &r&2- &6Female &r&2- &r女性玩家");
-            this.config.set("genders.list", genders);
+            this.config.createSection("genders.items");
+            
+            // 性别1 - 默认
+            this.config.set("genders.items.1.name", "&f默认");
+            this.config.set("genders.items.1.english", "&6Default");
+            this.config.set("genders.items.1.description", "&r默认性别");
+            
+            // 性别2 - 男
+            this.config.set("genders.items.2.name", "&b男");
+            this.config.set("genders.items.2.english", "&6Male");
+            this.config.set("genders.items.2.description", "&r男性玩家");
+            
+            // 性别3 - 女
+            this.config.set("genders.items.3.name", "&c女");
+            this.config.set("genders.items.3.english", "&6Female");
+            this.config.set("genders.items.3.description", "&r女性玩家");
+            
             try {
                 this.config.save(this.configFile);
             } catch (IOException e) {
@@ -226,6 +238,26 @@ public class RushCT extends JavaPlugin implements Listener {
         if (commandName.equals("friend") || commandName.equals("hello") || commandName.equals("passport") || commandName.equals("genderpage")) {
             return this.friendSystem.onCommand(sender, command, label, args);
         }
+        
+        if (commandName.equals("helppage")) {
+            if (!(sender instanceof Player)) {
+                sender.sendMessage("只有玩家可以使用此命令！");
+                return true;
+            }
+            Player player = (Player) sender;
+            if (args.length == 1) {
+                try {
+                    int page = Integer.parseInt(args[0]);
+                    showHelpPage(player, page);
+                    return true;
+                } catch (NumberFormatException e) {
+                    player.sendMessage("§c请输入有效的页码！");
+                    return true;
+                }
+            }
+            player.sendMessage("§c用法: /helppage <页码>");
+            return true;
+        }
 
         if (commandName.equals("rushct")) {
             if (args.length == 1 && args[0].equalsIgnoreCase("reload")) {
@@ -242,16 +274,27 @@ public class RushCT extends JavaPlugin implements Listener {
                 }
                 return true;
             }
-            sender.sendMessage("§a===== RushCT 插件指令列表 =====");
-            sender.sendMessage("§e/rushct reload §7- 重载插件配置 (需要admin权限)");
-            sender.sendMessage("§e/gift [玩家名称] §7- 打开快递系统");
-            sender.sendMessage("§e/friend [玩家名称] §7- 打开好友系统");
-            sender.sendMessage("§e/hello [玩家名称] §7- 打开玩家交互菜单");
-            sender.sendMessage("§e/passport [玩家名称] §7- 查看或编辑玩家信息");
-            sender.sendMessage("§e/menu §7- 打开服务器主菜单");
-            sender.sendMessage("§e/daily-check §7- 打开签到菜单");
-            sender.sendMessage("§e/checkplaytime <玩家名称> <年> <月> <日> §7- 查看玩家指定日期在线时长 (需要admin权限)");
-            sender.sendMessage("§a=============================");
+            
+            if (args.length == 2 && args[0].equalsIgnoreCase("help")) {
+                try {
+                    int page = Integer.parseInt(args[1]);
+                    if (sender instanceof Player) {
+                        showHelpPage((Player) sender, page);
+                    } else {
+                        showHelpPage(sender, page);
+                    }
+                    return true;
+                } catch (NumberFormatException e) {
+                    sender.sendMessage("§c请输入有效的页码！");
+                    return true;
+                }
+            }
+            
+            if (sender instanceof Player) {
+                showHelpPage((Player) sender, 1);
+            } else {
+                showHelpPage(sender, 1);
+            }
             return true;
         }
 
@@ -565,6 +608,9 @@ public class RushCT extends JavaPlugin implements Listener {
                 String name = clickedItem.getItemMeta().getDisplayName();
                 if (name.startsWith("§e")) {
                     performCheckIn(player);
+                    return;
+                } else if (name.startsWith("§7") && clickedItem.getType() == Material.WHITE_WOOL) {
+                    player.sendMessage("§c还未到签到日期，无法签到！");
                     return;
                 } else {
                     if (name.startsWith("§7") && clickedItem.getType() == Material.GRAY_WOOL) {
@@ -1092,9 +1138,10 @@ public class RushCT extends JavaPlugin implements Listener {
                         lore.add("§7点击签到");
                     }
                 } else {
-                    material = Material.GRAY_STAINED_GLASS_PANE;
+                    material = Material.WHITE_WOOL;
                     name = "§7" + day + "日";
                     lore.add("§7未到");
+                    lore.add("§7无法签到");
                 }
                 ItemStack dateItem = new ItemStack(material);
                 ItemMeta meta2 = dateItem.getItemMeta();
@@ -1585,5 +1632,58 @@ public class RushCT extends JavaPlugin implements Listener {
         public Inventory getInventory() {
             return null;
         }
+    }
+    
+    private void showHelpPage(CommandSender sender, int page) {
+        List<String> commands = new ArrayList<>();
+        commands.add("§e/rushct reload §7- 重载插件配置 (需要admin权限) [RushCT.java]");
+        commands.add("§e/gift [玩家名称] §7- 打开快递系统 [RushCT.java]");
+        commands.add("§e/friend [玩家名称] §7- 打开好友系统 [FriendSystem.java]");
+        commands.add("§e/hello [玩家名称] §7- 打开玩家交互菜单 [FriendSystem.java]");
+        commands.add("§e/passport [玩家名称] §7- 查看或编辑玩家信息 [FriendSystem.java]");
+        commands.add("§e/menu §7- 打开服务器主菜单 [RushCT.java]");
+        commands.add("§e/daily-check §7- 打开签到菜单 [RushCT.java]");
+        commands.add("§e/resgui [领地名] §7- 打开领地管理菜单 [EconomySystem.java]");
+        commands.add("§e/checkplaytime <玩家名称> <年> <月> <日> §7- 查看玩家指定日期在线时长 (需要admin权限) [FriendSystem.java]");
+        commands.add("§e/plusone <消息> §7- 对热门消息进行加一操作 [RushCT.java]");
+        
+        int pageSize = 8;
+        int totalPages = (int) Math.ceil((double) commands.size() / pageSize);
+        if (page < 1) page = 1;
+        if (page > totalPages) page = totalPages;
+        
+        sender.sendMessage("§m==============================================");
+        sender.sendMessage("§a§lRushCT 插件指令列表 - 第" + page + "/" + totalPages + "页");
+        sender.sendMessage("§m==============================================");
+        
+        int startIndex = (page - 1) * pageSize;
+        int endIndex = Math.min(startIndex + pageSize, commands.size());
+        for (int i = startIndex; i < endIndex; i++) {
+            sender.sendMessage(commands.get(i));
+        }
+        
+        sender.sendMessage("§m==============================================");
+        
+        if (sender instanceof Player && totalPages > 1) {
+            Player player = (Player) sender;
+            this.helpPageCache.put(player.getUniqueId(), page);
+            
+            if (page > 1) {
+                net.kyori.adventure.text.Component prevPage = net.kyori.adventure.text.Component.text("§e§l[◀ 上一页]")
+                    .clickEvent(net.kyori.adventure.text.event.ClickEvent.runCommand("/helppage " + (page - 1)))
+                    .hoverEvent(net.kyori.adventure.text.event.HoverEvent.showText(net.kyori.adventure.text.Component.text("§a点击查看上一页")));
+                player.sendMessage(prevPage);
+            }
+            if (page < totalPages) {
+                net.kyori.adventure.text.Component nextPage = net.kyori.adventure.text.Component.text("§e§l[下一页 ▶]")
+                    .clickEvent(net.kyori.adventure.text.event.ClickEvent.runCommand("/helppage " + (page + 1)))
+                    .hoverEvent(net.kyori.adventure.text.event.HoverEvent.showText(net.kyori.adventure.text.Component.text("§a点击查看下一页")));
+                player.sendMessage(nextPage);
+            }
+        }
+    }
+    
+    private void showHelpPage(Player player, int page) {
+        showHelpPage((CommandSender) player, page);
     }
 }

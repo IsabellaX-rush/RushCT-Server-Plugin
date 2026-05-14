@@ -43,6 +43,8 @@ public class FriendSystem implements Listener {
     private final JavaPlugin plugin;
     private File dataFile;
     private YamlConfiguration dataConfig;
+    private File playtimesFile;
+    private YamlConfiguration playtimesConfig;
     private final Map<UUID, List<Friend>> friends = new HashMap();
     private final Map<UUID, List<FriendRequest>> sentRequests = new HashMap();
     private final Map<UUID, List<FriendRequest>> receivedRequests = new HashMap();
@@ -91,6 +93,7 @@ public class FriendSystem implements Listener {
         this.plugin = plugin;
         plugin.getServer().getPluginManager().registerEvents(this, plugin);
         loadData();
+        loadPlaytimes();
         cleanupOldRequests();
         scheduleDailySnapshot();
     }
@@ -166,6 +169,13 @@ public class FriendSystem implements Listener {
         String placeholderResult = me.clip.placeholderapi.PlaceholderAPI.setPlaceholders(player, "%playtimes_playtime%");
         int finalTotal = parsePlayTimeToMinutes(placeholderResult);
         this.totalPlayTimeMinutes.put(playerUUID, finalTotal);
+        
+        // 计算今日在线时长并保存
+        Integer yesterdaySnapshot = this.dailyPlayTimeSnapshots.get(playerUUID);
+        int todayMinutes = yesterdaySnapshot != null ? Math.max(0, finalTotal - yesterdaySnapshot) : 0;
+        
+        // 保存到playtimes.yml
+        savePlaytime(playerUUID, finalTotal, todayMinutes);
         
         // 保存玩家数据
         saveData();
@@ -440,6 +450,39 @@ public class FriendSystem implements Listener {
         } catch (IOException e) {
             e.printStackTrace();
         }
+    }
+
+    private void loadPlaytimes() {
+        this.playtimesFile = new File(this.plugin.getDataFolder(), "playtimes.yml");
+        if (!this.playtimesFile.exists()) {
+            this.playtimesFile.getParentFile().mkdirs();
+            try {
+                this.playtimesFile.createNewFile();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+        this.playtimesConfig = YamlConfiguration.loadConfiguration(this.playtimesFile);
+    }
+
+    private void savePlaytime(UUID playerUUID, int totalMinutes, int todayMinutes) {
+        String uuidStr = playerUUID.toString();
+        this.playtimesConfig.set(uuidStr + ".total", Integer.valueOf(totalMinutes));
+        this.playtimesConfig.set(uuidStr + ".today", Integer.valueOf(todayMinutes));
+        this.playtimesConfig.set(uuidStr + ".lastUpdate", Long.valueOf(System.currentTimeMillis()));
+        try {
+            this.playtimesConfig.save(this.playtimesFile);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private int getStoredTotalPlaytime(UUID playerUUID) {
+        return this.playtimesConfig.getInt(playerUUID.toString() + ".total", 0);
+    }
+
+    private int getStoredTodayPlaytime(UUID playerUUID) {
+        return this.playtimesConfig.getInt(playerUUID.toString() + ".today", 0);
     }
 
     private void cleanupOldRequests() {
@@ -720,11 +763,25 @@ public class FriendSystem implements Listener {
         lastJoin.setItemMeta(lastJoinMeta);
         inventory.setItem(12, lastJoin);
 
+        Player targetPlayer = Bukkit.getPlayer(targetUUID);
+        int totalMinutes, todayMinutes;
+        
+        if (targetPlayer != null && targetPlayer.isOnline()) {
+            // 玩家在线，使用实时数据
+            String totalPlayTimeStr = getPlayerTotalPlayTime(targetUUID);
+            totalMinutes = parsePlayTimeToMinutes(totalPlayTimeStr);
+            int yesterdaySnapshot = this.dailyPlayTimeSnapshots.getOrDefault(targetUUID, 0).intValue();
+            todayMinutes = totalMinutes - yesterdaySnapshot;
+            if (todayMinutes < 0) todayMinutes = 0;
+        } else {
+            // 玩家离线，使用存储的数据
+            totalMinutes = getStoredTotalPlaytime(targetUUID);
+            todayMinutes = getStoredTodayPlaytime(targetUUID);
+        }
+
         ItemStack totalPlayTime = new ItemStack(Material.COMPASS);
         ItemMeta totalPlayTimeMeta = totalPlayTime.getItemMeta();
         totalPlayTimeMeta.setDisplayName("§a在线总时长");
-        String totalPlayTimeStr = getPlayerTotalPlayTime(targetUUID);
-        int totalMinutes = parsePlayTimeToMinutes(totalPlayTimeStr);
         long totalPlayTimeMs = totalMinutes * 60000L;
         totalPlayTimeMeta.setLore(Collections.singletonList(getPlayTimeFormat(totalPlayTimeMs, false)));
         totalPlayTime.setItemMeta(totalPlayTimeMeta);
@@ -733,9 +790,6 @@ public class FriendSystem implements Listener {
         ItemStack todayPlayTime = new ItemStack(Material.CLOCK);
         ItemMeta todayPlayTimeMeta = todayPlayTime.getItemMeta();
         todayPlayTimeMeta.setDisplayName("§a今日在线时长");
-        int yesterdaySnapshot = this.dailyPlayTimeSnapshots.getOrDefault(targetUUID, 0).intValue();
-        int todayMinutes = totalMinutes - yesterdaySnapshot;
-        if (todayMinutes < 0) todayMinutes = 0;
         long todayPlayTimeMs = todayMinutes * 60000L;
         todayPlayTimeMeta.setLore(Collections.singletonList(getPlayTimeFormat(todayPlayTimeMs, true)));
         todayPlayTime.setItemMeta(todayPlayTimeMeta);
